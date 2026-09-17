@@ -26,12 +26,17 @@ oficina-mvp-infra-iac/
 │   │   ├── main.tf              # Repositório Amazon ECR
 │   │   ├── variables.tf         # Variáveis do módulo ECR
 │   │   └── outputs.tf           # URL e ARN do repositório ECR
-│   └── eks/
-│       ├── main.tf              # Cluster EKS e Managed Node Group
-│       ├── variables.tf         # Variáveis do módulo EKS
-│       └── outputs.tf           # Endpoints e Autoridade Certificadora
+│   ├── eks/
+│   │   ├── main.tf              # Cluster EKS e Managed Node Group
+│   │   ├── variables.tf         # Variáveis do módulo EKS
+│   │   └── outputs.tf           # Endpoints e Autoridade Certificadora
+│   └── kong/
+│       ├── main.tf              # Helm release do Kong (namespace + helm_release)
+│       ├── values.yaml          # Config do chart: DB-less, Ingress Controller, proxy LoadBalancer
+│       ├── variables.tf         # Variáveis do módulo Kong
+│       └── outputs.tf           # Namespace e nome do release
 ├── backends.tf                  # Estado remoto do Terraform no S3
-├── provider.tf                  # Configuração do provider (AWS ~> 5.0)
+├── provider.tf                  # Configuração do provider (AWS ~> 5.0, kubernetes e helm)
 ├── data_source_vpc.tf           # Data sources: VPC default e subnets
 ├── data_source_iam.tf           # Data source: LabRole (IAM)
 ├── main.tf                      # Orquestração dos módulos
@@ -49,6 +54,7 @@ oficina-mvp-infra-iac/
 |---------|----------------------|--------------------------------------------------------------------------|
 | ECR     | `modules/ecr`        | Repositório `oficina-mecnica-lab`, `scan_on_push` ativado, `force_delete = true` |
 | EKS     | `modules/eks`        | Cluster `oficina-mecnica-lab-cluster` + managed node group (`t3.medium`, tamanho desejado 2, máximo 3) |
+| Kong (API Gateway) | `modules/kong` | Helm release do Kong (`https://charts.konghq.com`) no namespace `kong`, modo **DB-less** (sem banco próprio) com **Ingress Controller** habilitado — as rotas vêm de recursos `Ingress` declarados no repositório da aplicação (`oficina-mvp-java`), não de configuração manual aqui |
 
 Usa a **VPC default** da conta e a role `LabRole` (fornecida pelo ambiente de laboratório) — não cria nenhuma IAM
 role própria.
@@ -95,6 +101,7 @@ sobrescrever, passar `-var` na linha de comando ou criar um `terraform.tfvars` l
 | `ecr_repository_url`    | URL do repositório ECR              |
 | `eks_cluster_name`      | Nome do cluster EKS                 |
 | `eks_cluster_endpoint`  | Endpoint da API do cluster EKS      |
+| `kong_namespace`        | Namespace onde o Kong (API Gateway) foi instalado |
 
 ## ⚙️ 3. CI/CD (GitHub Actions)
 
@@ -111,16 +118,35 @@ variável `AWS_DEFAULT_REGION` configurados no repositório:
 
 ## 🧩 4. Como este repositório se encaixa no projeto
 
-Este é o repositório de infraestrutura (EKS + ECR) do desafio, referenciado pelos outros dois:
+Este é o repositório de infraestrutura (EKS + ECR + Kong) do desafio, referenciado pelos outros dois:
 
 - [`oficina-mvp-java`](https://github.com/lukebria/oficina-mvp-java) — backend Spring Boot. O
-  `.github/workflows/app-deploy.yml` de lá assume que o cluster (`oficina-mecnica-lab-cluster`) e o repositório
-  ECR (`oficina-mecnica-lab`) provisionados aqui já existem, e aplica os manifests em `k8s/` sobre eles —
-  incluindo o Postgres, que hoje roda como um `Deployment` comum dentro do mesmo cluster (`k8s/banco.yaml`), e
-  **não** é um banco gerenciado provisionado por este Terraform.
+  `.github/workflows/app-deploy.yml` de lá assume que o cluster (`oficina-mecnica-lab-cluster`), o repositório
+  ECR (`oficina-mecnica-lab`) e o Kong (namespace `kong`) provisionados aqui já existem, e aplica os manifests em
+  `k8s/` sobre eles — incluindo o `Ingress` que conecta a aplicação ao Kong (`k8s/ingress.yaml`) e o Postgres,
+  que hoje roda como um `Deployment` comum dentro do mesmo cluster (`k8s/banco.yaml`), e **não** é um banco
+  gerenciado provisionado por este Terraform.
 - [`oficina-auth-function`](https://github.com/lukebria/oficina-auth-function) — Function serverless (Lambda) que
   valida CPF/CNPJ e emite o JWT do fluxo público de cliente. Não depende de nada provisionado aqui — tem seu
-  próprio Terraform (Lambda + API Gateway) dentro do próprio repositório.
+  próprio Terraform (Lambda + API Gateway) dentro do próprio repositório. É um **API Gateway distinto do Kong**:
+  cada serviço (Lambda vs. aplicação principal no EKS) tem o seu.
+
+### Kong (API Gateway da aplicação principal)
+
+O `modules/kong` sobe o Kong via Helm (`https://charts.konghq.com`) dentro do próprio cluster EKS, sem nenhum
+serviço gerenciado novo/billável:
+
+- **Modo DB-less** (`env.database: "off"`) — sem Postgres/Cassandra próprio pro Kong, mais barato e mais simples
+  de operar num ambiente de crédito de lab.
+- **Ingress Controller habilitado** (`ingressController.enabled: true`) — o Kong descobre as rotas lendo
+  recursos `Ingress` padrão do Kubernetes; ele não tem nenhuma rota "hardcoded" aqui. Quem declara o `Ingress` é
+  o repositório da aplicação (`oficina-mvp-java/k8s/ingress.yaml`), com `ingressClassName: kong`.
+- **`proxy.type: LoadBalancer`** — o Kong ganha seu próprio endereço público (ELB da AWS); o `Service` da
+  aplicação principal passou a ser `ClusterIP` (só acessível de dentro do cluster), porque quem recebe tráfego
+  externo agora é o Kong.
+- Autenticação dos providers `kubernetes`/`helm` (`provider.tf`) usa os outputs do módulo `eks`
+  (`cluster_endpoint`, `cluster_certificate_authority_data`) + `data "aws_eks_cluster_auth"` — reaproveita as
+  mesmas credenciais AWS (temporárias, do Learner Lab) já usadas pelo provider `aws`.
 
 O plano de organização final do projeto prevê 4 repositórios de infra/app separados (Lambda, infra Kubernetes,
 infra de banco gerenciado e a aplicação principal) — ver a seção "Roadmap / TODO" do README do

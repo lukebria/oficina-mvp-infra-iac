@@ -21,3 +21,10 @@ module "eks" {
   subnet_ids   = data.aws_subnets.default.ids
   tags         = local.common_tags
 }
+
+# Chamada do Módulo Kong (API Gateway rodando dentro do cluster EKS)
+module "kong" {
+  source = "./modules/kong"
+
+  depends_on = [module.eks]
+}

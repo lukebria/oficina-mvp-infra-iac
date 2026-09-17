@@ -1,0 +1,16 @@
+# Kong em modo DB-less: sem banco próprio (Postgres/Cassandra) para o Kong,
+# combina com a restrição de custo do projeto (nenhum recurso billável novo).
+env:
+  database: "off"
+
+# Ingress Controller: as rotas vêm de manifests `Ingress` padrão do Kubernetes
+# (declarados no repositório da aplicação), em vez de config declarativa manual.
+ingressController:
+  enabled: true
+  installCRDs: true
+
+admin:
+  enabled: false
+
+proxy:
+  type: LoadBalancer
