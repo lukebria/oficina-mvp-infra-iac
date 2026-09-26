@@ -244,7 +244,7 @@ flowchart TB
 
     subgraph AWS["AWS - conta AWS Academy Learner Lab (us-east-1)"]
         subgraph EKS["Amazon EKS Cluster (este repositório)"]
-            Kong["Kong API Gateway<br/>(namespace kong, Ingress Controller, LoadBalancer)"]
+            Kong["Kong API Gateway<br/>(namespace kong, Ingress Controller, LoadBalancer,<br/>plugin jwt valida token de cliente)"]
             subgraph NsHomolog["namespace: homolog"]
                 AppHomolog["oficina-mvp-java (homolog)"]
             end
@@ -258,6 +258,7 @@ flowchart TB
         ECR["Amazon ECR<br/>(imagens da app)"]
         S3["S3: terraform state<br/>(este repo)"]
         Dynamo["DynamoDB: lock do state<br/>(este repo)"]
+        NewRelic["New Relic<br/>(módulo Helm nri-bundle, condicional a<br/>license key - ainda não instalado)"]
     end
 
     Cliente -->|"1: CPF"| ApiGwLambda --> Lambda
@@ -270,6 +271,7 @@ flowchart TB
     ECR -.->|imagem| AppHomolog
     ECR -.->|imagem| AppProd
     S3 -.-> Dynamo
+    EKS -.->|infra metrics/logs| NewRelic
 ```
 
 > Este diagrama substitui, para fins de arquitetura atual, o PNG legado abaixo — cobre Kong, os 2 gateways
