@@ -27,3 +27,10 @@ variable "customer_jwt_issuer" {
   type        = string
   default     = "customer-app"
 }
+
+variable "new_relic_license_key" {
+  description = "License Key da conta New Relic. Vazia por padrão - nesse caso o modulo newrelic não é instalado (count = 0)."
+  type        = string
+  sensitive   = true
+  default     = ""
+}

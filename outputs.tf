@@ -28,6 +28,11 @@ output "prod_namespace" {
   value       = kubernetes_namespace.prod.metadata[0].name
 }
 
+output "newrelic_namespace" {
+  description = "Namespace do New Relic, se instalado (vazio quando new_relic_license_key não estiver configurada)"
+  value       = try(module.newrelic[0].namespace, null)
+}
+
 output "customer_jwt_kong_plugin_name" {
   description = "Nome do KongClusterPlugin de validação do JWT de cliente (ADR-006) - referenciar via anotação konghq.com/plugins no Ingress das rotas públicas"
   value       = "customer-jwt-auth"
