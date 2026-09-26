@@ -83,6 +83,7 @@ jobs:
       - name: Terraform Plan
         env:
           TF_VAR_aws_region: ${{ vars.AWS_DEFAULT_REGION }}
+          TF_VAR_customer_jwt_secret: ${{ secrets.CUSTOMER_JWT_SECRET }}
         run: terraform plan -input=false
 
   # ==========================================
@@ -118,4 +119,5 @@ jobs:
       - name: Terraform Apply
         env:
           TF_VAR_aws_region: ${{ vars.AWS_DEFAULT_REGION }}
+          TF_VAR_customer_jwt_secret: ${{ secrets.CUSTOMER_JWT_SECRET }}
         run: terraform apply -auto-approve -input=false

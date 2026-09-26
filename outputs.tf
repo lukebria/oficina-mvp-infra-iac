@@ -28,6 +28,11 @@ output "prod_namespace" {
   value       = kubernetes_namespace.prod.metadata[0].name
 }
 
+output "customer_jwt_kong_plugin_name" {
+  description = "Nome do KongClusterPlugin de validação do JWT de cliente (ADR-006) - referenciar via anotação konghq.com/plugins no Ingress das rotas públicas"
+  value       = "customer-jwt-auth"
+}
+
 output "terraform_lock_table_name" {
   description = "Nome da tabela DynamoDB de lock do state (usar em backends.tf apos a Fase 1 aplicar, ver dynamodb.tf)"
   value       = aws_dynamodb_table.terraform_lock.name

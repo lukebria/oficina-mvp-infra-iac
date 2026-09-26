@@ -42,6 +42,7 @@ oficina-mvp-infra-iac/
 ├── main.tf                      # Orquestração dos módulos
 ├── namespaces.tf                # Namespaces "homolog" e "prod" (separação de ambiente no mesmo cluster)
 ├── dynamodb.tf                  # Tabela DynamoDB de lock do state (bootstrap Fase 1, ver seção 2.4)
+├── kong-jwt-auth.tf              # Consumer + credential + plugin JWT do Kong (valida o token de cliente, ADR-006)
 ├── variables.tf                 # Variáveis globais (com defaults)
 ├── outputs.tf                   # Saídas consolidadas do projeto
 ├── .github/workflows/
@@ -59,6 +60,7 @@ oficina-mvp-infra-iac/
 | Kong (API Gateway) | `modules/kong` | Helm release do Kong (`https://charts.konghq.com`) no namespace `kong`, modo **DB-less** (sem banco próprio) com **Ingress Controller** habilitado — as rotas vêm de recursos `Ingress` declarados no repositório da aplicação (`oficina-mvp-java`), não de configuração manual aqui |
 | Namespaces `homolog`/`prod` | `namespaces.tf` | Separação de ambiente dentro do mesmo cluster EKS — a aplicação principal faz deploy no namespace correspondente à branch de origem (`homolog` ou `master`) |
 | Tabela de lock do state | `dynamodb.tf` | `aws_dynamodb_table` (`PAY_PER_REQUEST`) para lock do backend S3 — ver seção 2.4 para o processo de bootstrap em 2 fases |
+| Validação do JWT de cliente no Kong | `kong-jwt-auth.tf` | `KongConsumer` + `Secret` (credential JWT) + `KongClusterPlugin` (`jwt`) — o Kong valida assinatura/expiração do token de cliente (emitido pela Lambda) antes de rotear pra aplicação. Decisão em ADR-006 (`oficina-mvp-java-backend/docs/architecture/adrs/`) |
 
 Usa a **VPC default** da conta e a role `LabRole` (fornecida pelo ambiente de laboratório) — não cria nenhuma IAM
 role própria.
@@ -99,6 +101,8 @@ de migrar para Terraform Cloud).
 | `aws_region`    | `us-east-1`            | Região AWS onde tudo é provisionado                        |
 | `project_name`  | `oficina-mecnica-lab`  | Nome base usado no ECR e no cluster (`<project_name>-cluster`) |
 | `environment`   | `lab`                  | Ambiente, usado só como tag (`common_tags`)                |
+| `customer_jwt_secret` | *(obrigatória, sem default)* | Segredo do JWT de cliente — mesmo valor de `oficina-auth-function`/`oficina-mvp-java-backend` (ADR-006) |
+| `customer_jwt_issuer` | `customer-app`         | Claim `iss` do JWT / username do `KongConsumer`             |
 
 Não há arquivo `terraform.tfvars` — os valores acima são os defaults declarados direto em `variables.tf`; para
 sobrescrever, passar `-var` na linha de comando ou criar um `terraform.tfvars` local (ignorado pelo Git).
@@ -114,6 +118,7 @@ sobrescrever, passar `-var` na linha de comando ou criar um `terraform.tfvars` l
 | `homolog_namespace`          | Namespace de homologação (deploy da aplicação principal) |
 | `prod_namespace`             | Namespace de produção (deploy da aplicação principal) |
 | `terraform_lock_table_name`  | Nome da tabela DynamoDB de lock do state (ver seção 2.4, Fase 2) |
+| `customer_jwt_kong_plugin_name` | Nome do `KongClusterPlugin` de validação do JWT de cliente (`customer-jwt-auth`, ADR-006) |
 
 ### 2.7. Como rodar localmente
 
@@ -127,6 +132,7 @@ export AWS_ACCESS_KEY_ID="..."
 export AWS_SECRET_ACCESS_KEY="..."
 export AWS_SESSION_TOKEN="..."
 export AWS_DEFAULT_REGION="us-east-1"
+export TF_VAR_customer_jwt_secret="..."   # mesmo valor de oficina-auth-function/oficina-mvp-java-backend
 
 # 2. Inicializar o backend remoto (S3)
 terraform init
@@ -147,10 +153,11 @@ Para desfazer tudo: `terraform destroy` (ou disparar manualmente o workflow `des
 
 ## ⚙️ 3. CI/CD (GitHub Actions)
 
-Dois workflows, ambos exigindo os secrets `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` e a
-variável `AWS_DEFAULT_REGION` configurados no repositório (⚠️ **ainda não configurados** — enquanto isso, o
-pipeline falha no passo "Configure AWS Credentials"; ver `plans/02-infra-k8s-ajustes.md` no repositório de
-specs do projeto):
+Dois workflows, ambos exigindo os secrets `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` /
+`CUSTOMER_JWT_SECRET` (esse último **precisa ser idêntico** ao configurado em `oficina-auth-function` e
+`oficina-mvp-java-backend`, ver ADR-006) e a variável `AWS_DEFAULT_REGION` configurados no repositório
+(⚠️ **ainda não configurados** — enquanto isso, o pipeline falha no passo "Configure AWS Credentials"; ver
+`plans/02-infra-k8s-ajustes.md` no repositório de specs do projeto):
 
 - **`create_iac.yml`** — três jobs em cadeia: `fmt-validate` (`terraform fmt -check` + `terraform validate`) →
   `plan` → `apply` (este último só roda em push para `homolog` ou `master`, ou disparo manual nessas branches).
@@ -195,6 +202,25 @@ serviço gerenciado novo/billável:
 - Autenticação dos providers `kubernetes`/`helm` (`provider.tf`) usa os outputs do módulo `eks`
   (`cluster_endpoint`, `cluster_certificate_authority_data`) + `data "aws_eks_cluster_auth"` — reaproveita as
   mesmas credenciais AWS (temporárias, do Learner Lab) já usadas pelo provider `aws`.
+
+### Validação do JWT de cliente no Kong (ADR-006)
+
+`kong-jwt-auth.tf` configura o plugin `jwt` nativo do Kong para validar o token do fluxo público de cliente
+(emitido pela Lambda `oficina-auth-function`) **antes** da requisição chegar na aplicação principal — defesa em
+profundidade: a aplicação continua validando o token e revalidando o status do cliente no banco, nada foi
+removido do lado dela.
+
+- `KongConsumer` (`username` = `var.customer_jwt_issuer`, default `customer-app`) + `Secret` rotulado
+  `kongCredType: jwt` com a credencial (mesmo `CUSTOMER_JWT_SECRET` usado pela Lambda e pela aplicação).
+- `KongClusterPlugin` (`customer-jwt-auth`) — cluster-scoped para poder ser referenciado por `Ingress` em
+  qualquer namespace (`homolog`/`prod`) via a anotação `konghq.com/plugins: customer-jwt-auth`.
+- Só se aplica às rotas públicas de OS — ver `oficina-mvp-java-backend/k8s/ingress-public.yaml` (`Ingress`
+  dedicado, separado do `Ingress` geral da aplicação).
+- ⚠️ **Bootstrap num cluster novo**: os CRDs `KongConsumer`/`KongClusterPlugin` são instalados pelo Helm release
+  do Kong (`module.kong`) na mesma `apply` que cria estes recursos — o provider do Kubernetes pode falhar na
+  primeira tentativa ("no matches for kind") só porque o CRD ainda não estava registrado no momento do
+  plan/refresh. Solução: rodar `terraform apply` de novo (idempotente) — na segunda vez o CRD já existe. Mesmo
+  padrão do bootstrap em 2 fases do lock de state (seção 2.4).
 
 Os 4 repositórios exigidos pelo enunciado já existem (Lambda, infra Kubernetes — este —, infra de banco
 gerenciado, aplicação principal); o repositório de banco (`oficina-mvp-infra-db`) ainda está vazio, aguardando
