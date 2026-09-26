@@ -30,11 +30,15 @@ oficina-mvp-infra-iac/
 │   │   ├── main.tf              # Cluster EKS e Managed Node Group
 │   │   ├── variables.tf         # Variáveis do módulo EKS
 │   │   └── outputs.tf           # Endpoints e Autoridade Certificadora
-│   └── kong/
-│       ├── main.tf              # Helm release do Kong (namespace + helm_release)
-│       ├── values.yaml          # Config do chart: DB-less, Ingress Controller, proxy LoadBalancer
-│       ├── variables.tf         # Variáveis do módulo Kong
-│       └── outputs.tf           # Namespace e nome do release
+│   ├── kong/
+│   │   ├── main.tf              # Helm release do Kong (namespace + helm_release)
+│   │   ├── values.yaml          # Config do chart: DB-less, Ingress Controller, proxy LoadBalancer
+│   │   ├── variables.tf         # Variáveis do módulo Kong
+│   │   └── outputs.tf           # Namespace e nome do release
+│   └── newrelic/
+│       ├── main.tf              # Helm release do New Relic (nri-bundle) - infraestrutura + logs + kube-state-metrics
+│       ├── variables.tf         # Variáveis do módulo New Relic
+│       └── outputs.tf           # Namespace do release
 ├── backends.tf                  # Estado remoto do Terraform no S3
 ├── provider.tf                  # Configuração do provider (AWS ~> 5.0, kubernetes e helm)
 ├── data_source_vpc.tf           # Data sources: VPC default e subnets
@@ -61,6 +65,7 @@ oficina-mvp-infra-iac/
 | Namespaces `homolog`/`prod` | `namespaces.tf` | Separação de ambiente dentro do mesmo cluster EKS — a aplicação principal faz deploy no namespace correspondente à branch de origem (`homolog` ou `master`) |
 | Tabela de lock do state | `dynamodb.tf` | `aws_dynamodb_table` (`PAY_PER_REQUEST`) para lock do backend S3 — ver seção 2.4 para o processo de bootstrap em 2 fases |
 | Validação do JWT de cliente no Kong | `kong-jwt-auth.tf` | `KongConsumer` + `Secret` (credential JWT) + `KongClusterPlugin` (`jwt`) — o Kong valida assinatura/expiração do token de cliente (emitido pela Lambda) antes de rotear pra aplicação. Decisão em ADR-006 (`oficina-mvp-java-backend/docs/architecture/adrs/`) |
+| New Relic (observabilidade) | `modules/newrelic` | Helm release `nri-bundle` (infraestrutura + kube-state-metrics + logs) — **só instalado se `var.new_relic_license_key` não estiver vazia** (`count`); sem License Key configurada, nada é criado |
 
 Usa a **VPC default** da conta e a role `LabRole` (fornecida pelo ambiente de laboratório) — não cria nenhuma IAM
 role própria.
@@ -103,6 +108,7 @@ de migrar para Terraform Cloud).
 | `environment`   | `lab`                  | Ambiente, usado só como tag (`common_tags`)                |
 | `customer_jwt_secret` | *(obrigatória, sem default)* | Segredo do JWT de cliente — mesmo valor de `oficina-auth-function`/`oficina-mvp-java-backend` (ADR-006) |
 | `customer_jwt_issuer` | `customer-app`         | Claim `iss` do JWT / username do `KongConsumer`             |
+| `new_relic_license_key` | *(vazia)*            | License Key da conta New Relic — vazia = módulo `newrelic` não é instalado |
 
 Não há arquivo `terraform.tfvars` — os valores acima são os defaults declarados direto em `variables.tf`; para
 sobrescrever, passar `-var` na linha de comando ou criar um `terraform.tfvars` local (ignorado pelo Git).
@@ -119,6 +125,7 @@ sobrescrever, passar `-var` na linha de comando ou criar um `terraform.tfvars` l
 | `prod_namespace`             | Namespace de produção (deploy da aplicação principal) |
 | `terraform_lock_table_name`  | Nome da tabela DynamoDB de lock do state (ver seção 2.4, Fase 2) |
 | `customer_jwt_kong_plugin_name` | Nome do `KongClusterPlugin` de validação do JWT de cliente (`customer-jwt-auth`, ADR-006) |
+| `newrelic_namespace` | Namespace do New Relic, se instalado (`null` quando sem License Key configurada) |
 
 ### 2.7. Como rodar localmente
 
@@ -157,7 +164,8 @@ Dois workflows, ambos exigindo os secrets `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCE
 `CUSTOMER_JWT_SECRET` (esse último **precisa ser idêntico** ao configurado em `oficina-auth-function` e
 `oficina-mvp-java-backend`, ver ADR-006) e a variável `AWS_DEFAULT_REGION` configurados no repositório
 (⚠️ **ainda não configurados** — enquanto isso, o pipeline falha no passo "Configure AWS Credentials"; ver
-`plans/02-infra-k8s-ajustes.md` no repositório de specs do projeto):
+`plans/02-infra-k8s-ajustes.md` no repositório de specs do projeto). Secret **opcional**:
+`NEW_RELIC_LICENSE_KEY` — se ausente/vazio, o módulo `newrelic` simplesmente não é instalado (sem erro).
 
 - **`create_iac.yml`** — três jobs em cadeia: `fmt-validate` (`terraform fmt -check` + `terraform validate`) →
   `plan` → `apply` (este último só roda em push para `homolog` ou `master`, ou disparo manual nessas branches).

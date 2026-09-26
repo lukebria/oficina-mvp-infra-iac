@@ -84,6 +84,7 @@ jobs:
         env:
           TF_VAR_aws_region: ${{ vars.AWS_DEFAULT_REGION }}
           TF_VAR_customer_jwt_secret: ${{ secrets.CUSTOMER_JWT_SECRET }}
+          TF_VAR_new_relic_license_key: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
         run: terraform plan -input=false
 
   # ==========================================
@@ -120,4 +121,5 @@ jobs:
         env:
           TF_VAR_aws_region: ${{ vars.AWS_DEFAULT_REGION }}
           TF_VAR_customer_jwt_secret: ${{ secrets.CUSTOMER_JWT_SECRET }}
+          TF_VAR_new_relic_license_key: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
         run: terraform apply -auto-approve -input=false
