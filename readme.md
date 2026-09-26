@@ -40,6 +40,8 @@ oficina-mvp-infra-iac/
 ├── data_source_vpc.tf           # Data sources: VPC default e subnets
 ├── data_source_iam.tf           # Data source: LabRole (IAM)
 ├── main.tf                      # Orquestração dos módulos
+├── namespaces.tf                # Namespaces "homolog" e "prod" (separação de ambiente no mesmo cluster)
+├── dynamodb.tf                  # Tabela DynamoDB de lock do state (bootstrap Fase 1, ver seção 2.4)
 ├── variables.tf                 # Variáveis globais (com defaults)
 ├── outputs.tf                   # Saídas consolidadas do projeto
 ├── .github/workflows/
@@ -55,6 +57,8 @@ oficina-mvp-infra-iac/
 | ECR     | `modules/ecr`        | Repositório `oficina-mecnica-lab`, `scan_on_push` ativado, `force_delete = true` |
 | EKS     | `modules/eks`        | Cluster `oficina-mecnica-lab-cluster` + managed node group (`t3.medium`, tamanho desejado 2, máximo 3) |
 | Kong (API Gateway) | `modules/kong` | Helm release do Kong (`https://charts.konghq.com`) no namespace `kong`, modo **DB-less** (sem banco próprio) com **Ingress Controller** habilitado — as rotas vêm de recursos `Ingress` declarados no repositório da aplicação (`oficina-mvp-java`), não de configuração manual aqui |
+| Namespaces `homolog`/`prod` | `namespaces.tf` | Separação de ambiente dentro do mesmo cluster EKS — a aplicação principal faz deploy no namespace correspondente à branch de origem (`homolog` ou `master`) |
+| Tabela de lock do state | `dynamodb.tf` | `aws_dynamodb_table` (`PAY_PER_REQUEST`) para lock do backend S3 — ver seção 2.4 para o processo de bootstrap em 2 fases |
 
 Usa a **VPC default** da conta e a role `LabRole` (fornecida pelo ambiente de laboratório) — não cria nenhuma IAM
 role própria.
@@ -79,9 +83,14 @@ numa conta AWS convencional. Isso molda várias decisões do código:
 O state fica no S3 (`backends.tf`): bucket `oficina-mvp-infra-iac`, key `oficina-lab/terraform.tfstate`,
 `encrypt = true`.
 
-⚠️ **Não há tabela DynamoDB de lock configurada.** Sem lock, duas execuções simultâneas (por exemplo, um `apply`
-manual e um disparo do pipeline ao mesmo tempo) podem corromper o state — evitar rodar em paralelo até isso ser
-adicionado.
+🟡 **Lock do state em bootstrap (2 fases)** — decisão fechada: manter S3 e adicionar lock via DynamoDB (em vez
+de migrar para Terraform Cloud).
+- **Fase 1 (feita neste repositório)**: `dynamodb.tf` cria a tabela `oficina-mvp-infra-iac-tf-lock`, usando
+  ainda o backend atual (sem lock) para não travar antes da tabela existir.
+- **Fase 2 (manual, depois que a Fase 1 aplicar com sucesso)**: adicionar
+  `dynamodb_table = "oficina-mvp-infra-iac-tf-lock"` em `backends.tf` e rodar `terraform init -migrate-state`.
+  Só faz sentido depois que a tabela já existir de fato na conta — por isso não entra no mesmo commit/PR da
+  Fase 1. Até lá, evitar rodar `apply` em paralelo (manual + pipeline ao mesmo tempo).
 
 ### 2.5. Variáveis
 
@@ -96,31 +105,70 @@ sobrescrever, passar `-var` na linha de comando ou criar um `terraform.tfvars` l
 
 ### 2.6. Outputs
 
-| Output                 | Descrição                       |
-|--------------------------|-------------------------------------|
-| `ecr_repository_url`    | URL do repositório ECR              |
-| `eks_cluster_name`      | Nome do cluster EKS                 |
-| `eks_cluster_endpoint`  | Endpoint da API do cluster EKS      |
-| `kong_namespace`        | Namespace onde o Kong (API Gateway) foi instalado |
+| Output                       | Descrição                       |
+|-------------------------------|-------------------------------------|
+| `ecr_repository_url`         | URL do repositório ECR              |
+| `eks_cluster_name`           | Nome do cluster EKS                 |
+| `eks_cluster_endpoint`       | Endpoint da API do cluster EKS      |
+| `kong_namespace`             | Namespace onde o Kong (API Gateway) foi instalado |
+| `homolog_namespace`          | Namespace de homologação (deploy da aplicação principal) |
+| `prod_namespace`             | Namespace de produção (deploy da aplicação principal) |
+| `terraform_lock_table_name`  | Nome da tabela DynamoDB de lock do state (ver seção 2.4, Fase 2) |
+
+### 2.7. Como rodar localmente
+
+Pré-requisitos: Terraform `>= 1.5.0`, credenciais AWS ativas (no caso do AWS Academy Learner Lab: access key +
+secret key + **session token**, temporárias e válidas por poucas horas), `kubectl` (opcional, para inspecionar
+o cluster depois).
+
+```bash
+# 1. Exportar credenciais AWS da sessão atual do lab
+export AWS_ACCESS_KEY_ID="..."
+export AWS_SECRET_ACCESS_KEY="..."
+export AWS_SESSION_TOKEN="..."
+export AWS_DEFAULT_REGION="us-east-1"
+
+# 2. Inicializar o backend remoto (S3)
+terraform init
+
+# 3. Ver o que seria criado/alterado
+terraform plan
+
+# 4. Aplicar
+terraform apply
+
+# 5. (opcional) Configurar o kubectl local para apontar para o cluster criado
+aws eks update-kubeconfig --name "$(terraform output -raw eks_cluster_name)" --region us-east-1
+kubectl get namespaces   # deve listar "homolog" e "prod" além dos padrão
+kubectl get pods -n kong # deve mostrar o Kong rodando
+```
+
+Para desfazer tudo: `terraform destroy` (ou disparar manualmente o workflow `destroy_iac.yml` no GitHub).
 
 ## ⚙️ 3. CI/CD (GitHub Actions)
 
 Dois workflows, ambos exigindo os secrets `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` e a
-variável `AWS_DEFAULT_REGION` configurados no repositório:
+variável `AWS_DEFAULT_REGION` configurados no repositório (⚠️ **ainda não configurados** — enquanto isso, o
+pipeline falha no passo "Configure AWS Credentials"; ver `plans/02-infra-k8s-ajustes.md` no repositório de
+specs do projeto):
 
 - **`create_iac.yml`** — três jobs em cadeia: `fmt-validate` (`terraform fmt -check` + `terraform validate`) →
-  `plan` → `apply` (este último só roda se o `ref` for `refs/heads/main`).
-  ⚠️ Os gatilhos de `pull_request`/`push` estão configurados para a branch `main-disabled`, não `main` — na
-  prática, hoje esse workflow só roda via **execução manual** (`workflow_dispatch`). Se isso for intencional
-  (evitar `apply` automático consumindo hora de lab sem querer), tudo certo; caso contrário, trocar
-  `main-disabled` por `main` nos gatilhos para reativar o plano automático em PR/push.
+  `plan` → `apply` (este último só roda em push para `homolog` ou `master`, ou disparo manual nessas branches).
+  Gatilhos de `pull_request`/`push` cobrem `homolog` e `master`, seguindo o git flow do projeto
+  (`feat/* → homolog → master`) — corrigido em 2026-09-26 (antes apontavam para uma branch `main-disabled`
+  inexistente, então só rodava manualmente).
 - **`destroy_iac.yml`** — só dispara manualmente (`workflow_dispatch`), roda `terraform destroy -auto-approve`.
 
 ## 🧩 4. Como este repositório se encaixa no projeto
 
-Este é o repositório de infraestrutura (EKS + ECR + Kong) do desafio, referenciado pelos outros dois:
+Este é o repositório de infraestrutura Kubernetes (EKS + ECR + Kong) do desafio — repositório 2 dos 4 exigidos
+pelo enunciado. Os outros três:
 
-- [`oficina-mvp-java`](https://github.com/lukebria/oficina-mvp-java) — backend Spring Boot. O
+- [`oficina-mvp-infra-db`](https://github.com/lukebria/oficina-mvp-infra-db) — infraestrutura do banco de dados
+  gerenciado (PostgreSQL via Amazon RDS, Terraform), repositório 3/4. Criado em 2026-09-26, ainda sem o
+  Terraform do RDS (ver `plans/01-infra-db-novo-repo.md`). Vai consumir `vpc_id`/subnets deste repositório via
+  `terraform_remote_state` para liberar acesso do RDS ao cluster EKS.
+- [`oficina-mvp-java`](https://github.com/lukebria/oficina-mvp-java) — backend Spring Boot, repositório 4/4. O
   `.github/workflows/app-deploy.yml` de lá assume que o cluster (`oficina-mecnica-lab-cluster`), o repositório
   ECR (`oficina-mecnica-lab`) e o Kong (namespace `kong`) provisionados aqui já existem, e aplica os manifests em
   `k8s/` sobre eles — incluindo o `Ingress` que conecta a aplicação ao Kong (`k8s/ingress.yaml`) e o Postgres,
@@ -148,12 +196,54 @@ serviço gerenciado novo/billável:
   (`cluster_endpoint`, `cluster_certificate_authority_data`) + `data "aws_eks_cluster_auth"` — reaproveita as
   mesmas credenciais AWS (temporárias, do Learner Lab) já usadas pelo provider `aws`.
 
-O plano de organização final do projeto prevê 4 repositórios de infra/app separados (Lambda, infra Kubernetes,
-infra de banco gerenciado e a aplicação principal) — ver a seção "Roadmap / TODO" do README do
-`oficina-mvp-java` para o detalhe completo. Hoje: este repositório cobre a infra do Kubernetes/ECR; a infra de
-banco gerenciado ainda não existe em lugar nenhum.
+Os 4 repositórios exigidos pelo enunciado já existem (Lambda, infra Kubernetes — este —, infra de banco
+gerenciado, aplicação principal); o repositório de banco (`oficina-mvp-infra-db`) ainda está vazio, aguardando
+o Terraform do RDS.
 
 ## 🖼️ 5. Diagrama
+
+### 5.1. Diagrama de componentes (atualizado em 2026-09-26)
+
+```mermaid
+flowchart TB
+    Cliente((Cliente))
+
+    subgraph AWS["AWS - conta AWS Academy Learner Lab (us-east-1)"]
+        subgraph EKS["Amazon EKS Cluster (este repositório)"]
+            Kong["Kong API Gateway<br/>(namespace kong, Ingress Controller, LoadBalancer)"]
+            subgraph NsHomolog["namespace: homolog"]
+                AppHomolog["oficina-mvp-java (homolog)"]
+            end
+            subgraph NsProd["namespace: prod"]
+                AppProd["oficina-mvp-java (prod)"]
+            end
+        end
+        RDS[("Amazon RDS PostgreSQL<br/>(oficina-mvp-infra-db, pendente)")]
+        Lambda["Lambda: oficina-auth-function"]
+        ApiGwLambda["AWS API Gateway (HTTP API)<br/>só da Lambda"]
+        ECR["Amazon ECR<br/>(imagens da app)"]
+        S3["S3: terraform state<br/>(este repo)"]
+        Dynamo["DynamoDB: lock do state<br/>(este repo)"]
+    end
+
+    Cliente -->|"1: CPF"| ApiGwLambda --> Lambda
+    Lambda -->|"2: consulta status + JWT"| Kong
+    Cliente -->|"3: rotas protegidas (JWT)"| Kong
+    Kong --> AppHomolog
+    Kong --> AppProd
+    AppHomolog --> RDS
+    AppProd --> RDS
+    ECR -.->|imagem| AppHomolog
+    ECR -.->|imagem| AppProd
+    S3 -.-> Dynamo
+```
+
+> Este diagrama substitui, para fins de arquitetura atual, o PNG legado abaixo — cobre Kong, os 2 gateways
+> distintos (Kong vs. AWS API Gateway da Lambda), os namespaces homolog/prod, e o RDS (ainda pendente de
+> aplicar). Ver `plans/06-documentacao-arquitetural.md` no repositório de specs do projeto para o diagrama de
+> componentes definitivo (cobrindo também observabilidade).
+
+### 5.2. Diagrama legado (histórico, desatualizado)
 
 ![Arquitetura](oficina%20mvp-2.png)
 
