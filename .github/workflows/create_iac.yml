@@ -1,13 +1,17 @@
 name: "Oficina IaC - Create"
 
-# 1. GATILHOS: Dispara no PR, no Push para a main e via execução manual
+# 1. GATILHOS: Dispara no PR e no Push para homolog/master (git flow: feat -> homolog -> master),
+# e via execução manual. Aplica automaticamente em push para as duas branches (infra é compartilhada
+# entre os ambientes - namespaces separam homolog/prod dentro do mesmo cluster).
 on:
   pull_request:
     branches:
-      - main-disabled
+      - homolog
+      - master
   push:
     branches:
-      - main-disabled
+      - homolog
+      - master
   workflow_dispatch:
 
 permissions:
@@ -82,13 +86,13 @@ jobs:
         run: terraform plan -input=false
 
   # ==========================================
-  # JOB 3: APLICAÇÃO / APPLY (Apenas na Master)
+  # JOB 3: APLICAÇÃO / APPLY (homolog ou master)
   # ==========================================
   apply:
     name: "3. Terraform Apply"
     needs: plan # Só roda se o Plan passar
-    # Condição: Executa apenas no Push para a 'master' ou disparo manual na 'master'
-    if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    # Condição: Executa apenas no Push para 'homolog'/'master' ou disparo manual nessas branches
+    if: (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/homolog') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
 
     steps:
