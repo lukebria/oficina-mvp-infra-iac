@@ -12,3 +12,8 @@ output "eks_cluster_endpoint" {
   description = "Endpoint do Cluster EKS"
   value       = module.eks.cluster_endpoint
 }
+
+output "kong_namespace" {
+  description = "Namespace onde o Kong (API Gateway) foi instalado"
+  value       = module.kong.namespace
+}
