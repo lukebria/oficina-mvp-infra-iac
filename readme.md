@@ -238,11 +238,10 @@ removido do lado dela.
   qualquer namespace (`homolog`/`prod`) via a anotação `konghq.com/plugins: customer-jwt-auth`.
 - Só se aplica às rotas públicas de OS — ver `oficina-mvp-java-backend/k8s/ingress-public.yaml` (`Ingress`
   dedicado, separado do `Ingress` geral da aplicação).
-- ⚠️ **Bootstrap num cluster novo**: os CRDs `KongConsumer`/`KongClusterPlugin` são instalados pelo Helm release
-  do Kong (`module.kong`) na mesma `apply` que cria estes recursos — o provider do Kubernetes pode falhar na
-  primeira tentativa ("no matches for kind") só porque o CRD ainda não estava registrado no momento do
-  plan/refresh. Solução: rodar `terraform apply` de novo (idempotente) — na segunda vez o CRD já existe. Mesmo
-  padrão do bootstrap em 2 fases do lock de state (seção 2.4).
+- **Entregue pelo próprio Helm release do Kong** (`extraObjects` do chart, via `module.kong`): o Helm instala
+  primeiro os CRDs `KongConsumer`/`KongClusterPlugin` e depois estes objetos, na mesma `apply`. Antes eles eram
+  `kubernetes_manifest`, que exige o cluster já existir no momento do `plan` — num ambiente do zero o plan
+  inteiro falhava (`Failed to construct REST client`) e nada era criado.
 
 Os 4 repositórios exigidos pelo enunciado já existem (Lambda, infra Kubernetes — este —, infra de banco
 gerenciado, aplicação principal); o repositório de banco (`oficina-mvp-infra-db`) ainda está vazio, aguardando
