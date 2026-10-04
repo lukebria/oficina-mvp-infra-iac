@@ -7,7 +7,10 @@ env:
 # (declarados no repositório da aplicação), em vez de config declarativa manual.
 ingressController:
   enabled: true
-  installCRDs: true
+  # CRDs ficam SÓ com o mecanismo nativo do Helm 3 (pasta crds/ do chart). Com installCRDs: true o chart
+  # também os renderiza como template, e a instalação aborta com "CustomResourceDefinition ... exists and
+  # cannot be imported into the current release" (os da pasta crds/ não levam labels de ownership do Helm).
+  installCRDs: false
 
 admin:
   enabled: false
