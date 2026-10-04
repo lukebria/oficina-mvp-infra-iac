@@ -26,6 +26,9 @@ module "eks" {
 module "kong" {
   source = "./modules/kong"
 
+  # Consumer + credential + plugin JWT do cliente (ADR-006), ver kong-jwt-auth.tf
+  extra_objects = local.kong_customer_jwt_objects
+
   depends_on = [module.eks]
 }
 
