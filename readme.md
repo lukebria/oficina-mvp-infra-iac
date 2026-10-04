@@ -87,8 +87,22 @@ numa conta AWS convencional. Isso molda várias decisões do código:
 
 ### 2.4. State remoto
 
-O state fica no S3 (`backends.tf`): bucket `oficina-mvp-infra-iac`, key `oficina-lab/terraform.tfstate`,
+O state fica no S3 (`backends.tf`): bucket `oficina-mvp-tfstate-536036031274`, key `oficina-lab/terraform.tfstate`,
 `encrypt = true`.
+
+O bucket **não é criado pelo Terraform** (o backend precisa dele antes do `init`): é criado uma única vez pela
+CLI na conta do Learner Lab, privado, versionado e criptografado. O sufixo é o ID da conta AWS, porque nomes de
+bucket são globais — o nome antigo (`oficina-mvp-infra-iac`) pertence a outra conta e não pode mais ser usado.
+
+```bash
+B=oficina-mvp-tfstate-536036031274
+aws s3api create-bucket --bucket $B --region us-east-1
+aws s3api put-bucket-versioning --bucket $B --versioning-configuration Status=Enabled
+aws s3api put-public-access-block --bucket $B --public-access-block-configuration \
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+aws s3api put-bucket-encryption --bucket $B \
+  --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+```
 
 🟡 **Lock do state em bootstrap (2 fases)** — decisão fechada: manter S3 e adicionar lock via DynamoDB (em vez
 de migrar para Terraform Cloud).
