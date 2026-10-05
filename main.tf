@@ -32,6 +32,13 @@ module "kong" {
   depends_on = [module.eks]
 }
 
+# Chamada do Módulo metrics-server (pré-requisito do HPA da aplicação - sem ele o HPA não lê CPU e não escala)
+module "metrics_server" {
+  source = "./modules/metrics-server"
+
+  depends_on = [module.eks]
+}
+
 # Chamada do Módulo New Relic (observabilidade do cluster) - só instala quando uma License Key for
 # configurada (var.new_relic_license_key não vazia); sem ela, count = 0 e nada é criado. Decisão registrada
 # em plans/00-decisoes-tecnicas.md / plans/05-observabilidade-new-relic.md (projeto de specs).

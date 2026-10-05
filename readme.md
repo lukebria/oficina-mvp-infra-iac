@@ -35,6 +35,10 @@ oficina-mvp-infra-iac/
 │   │   ├── values.yaml          # Config do chart: DB-less, Ingress Controller, proxy LoadBalancer
 │   │   ├── variables.tf         # Variáveis do módulo Kong
 │   │   └── outputs.tf           # Namespace e nome do release
+│   ├── metrics-server/
+│   │   ├── main.tf              # Helm release do metrics-server (kube-system) - pré-requisito do HPA
+│   │   ├── variables.tf         # Versão do chart
+│   │   └── outputs.tf           # Nome do release
 │   └── newrelic/
 │       ├── main.tf              # Helm release do New Relic (nri-bundle) - infraestrutura + logs + kube-state-metrics
 │       ├── variables.tf         # Variáveis do módulo New Relic
@@ -65,6 +69,7 @@ oficina-mvp-infra-iac/
 | Namespaces `homolog`/`prod` | `namespaces.tf` | Separação de ambiente dentro do mesmo cluster EKS — a aplicação principal faz deploy no namespace correspondente à branch de origem (`homolog` ou `master`) |
 | Tabela de lock do state | `dynamodb.tf` | `aws_dynamodb_table` (`PAY_PER_REQUEST`) para lock do backend S3 — ver seção 2.4 para o processo de bootstrap em 2 fases |
 | Validação do JWT de cliente no Kong | `kong-jwt-auth.tf` | `KongConsumer` + `Secret` (credential JWT) + `KongClusterPlugin` (`jwt`) — o Kong valida assinatura/expiração do token de cliente (emitido pela Lambda) antes de rotear pra aplicação. Decisão em ADR-006 (`oficina-mvp-java-backend/docs/architecture/adrs/`) |
+| metrics-server | `modules/metrics-server` | Helm release do chart oficial (`kubernetes-sigs`, `3.14.0`) no `kube-system`. **Pré-requisito do HPA** da aplicação: o EKS não vem com metrics-server, e sem ele o HPA fica com `cpu: <unknown>` e nunca escala. Via Helm (e não add-on do EKS) porque o Learner Lab nega a API de add-ons |
 | New Relic (observabilidade) | `modules/newrelic` | Helm release `nri-bundle` (infraestrutura + kube-state-metrics + logs) — **só instalado se `var.new_relic_license_key` não estiver vazia** (`count`); sem License Key configurada, nada é criado |
 
 Usa a **VPC default** da conta e a role `LabRole` (fornecida pelo ambiente de laboratório) — não cria nenhuma IAM
@@ -258,7 +263,7 @@ o Terraform do RDS.
 
 ## 🖼️ 5. Diagrama
 
-### 5.1. Diagrama de componentes (atualizado em 2026-09-26)
+### 5.1. Diagrama de componentes (atualizado em 2026-10-04)
 
 ```mermaid
 flowchart TB
@@ -267,6 +272,7 @@ flowchart TB
     subgraph AWS["AWS - conta AWS Academy Learner Lab (us-east-1)"]
         subgraph EKS["Amazon EKS Cluster (este repositório)"]
             Kong["Kong API Gateway<br/>(namespace kong, Ingress Controller, LoadBalancer,<br/>plugin jwt valida token de cliente)"]
+            MetricsServer["metrics-server<br/>(kube-system, alimenta o HPA)"]
             subgraph NsHomolog["namespace: homolog"]
                 AppHomolog["oficina-mvp-java (homolog)"]
             end
@@ -280,7 +286,7 @@ flowchart TB
         ECR["Amazon ECR<br/>(imagens da app)"]
         S3["S3: terraform state<br/>(este repo)"]
         Dynamo["DynamoDB: lock do state<br/>(este repo)"]
-        NewRelic["New Relic<br/>(módulo Helm nri-bundle, condicional a<br/>license key - ainda não instalado)"]
+        NewRelic["New Relic<br/>(módulo Helm nri-bundle, condicional à<br/>License Key - configurada em 2026-10-04)"]
     end
 
     Cliente -->|"1: CPF"| ApiGwLambda --> Lambda
@@ -294,6 +300,8 @@ flowchart TB
     ECR -.->|imagem| AppProd
     S3 -.-> Dynamo
     EKS -.->|infra metrics/logs| NewRelic
+    MetricsServer -.->|CPU dos pods p/ HPA| AppHomolog
+    MetricsServer -.->|CPU dos pods p/ HPA| AppProd
 ```
 
 > Este diagrama substitui, para fins de arquitetura atual, o PNG legado abaixo — cobre Kong, os 2 gateways
