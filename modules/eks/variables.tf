@@ -25,6 +25,12 @@ variable "desired_size" {
   default     = 2
 }
 
+variable "node_tags" {
+  description = "Tags comuns aplicadas às instâncias EC2 e discos dos nós (via launch template - default_tags do provider não chegam lá)"
+  type        = map(string)
+  default     = {}
+}
+
 variable "tags" {
   description = "Tags padrões"
   type        = map(string)

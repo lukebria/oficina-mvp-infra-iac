@@ -26,5 +26,8 @@ resource "aws_dynamodb_table" "terraform_lock" {
     type = "S"
   }
 
-  tags = local.common_tags
+  tags = {
+    Name        = "oficina-mvp-tf-lock"
+    Description = "Lock do state do Terraform (compartilhado pelos 3 repos de infra)"
+  }
 }
