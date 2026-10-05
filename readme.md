@@ -177,6 +177,28 @@ kubectl get pods -n kong # deve mostrar o Kong rodando
 
 Para desfazer tudo: `terraform destroy` (ou disparar manualmente o workflow `destroy_iac.yml` no GitHub).
 
+### 2.5. Tags dos recursos (o que é cada coisa no console)
+
+Todo recurso AWS criado por este repositório leva as **tags comuns do projeto** (`default_tags` do provider):
+`Project=oficina-mvp` (igual nos 3 repos de Terraform), `Repository=oficina-mvp-infra-iac`, `Component=kubernetes`,
+`Environment=lab`, `ManagedBy=terraform`, `Course=FIAP POSTECH 13SOAT - Tech Challenge Fase 3`. Além delas,
+cada recurso tem **`Name`** (o que aparece na coluna *Name* do console) e **`Description`**:
+
+| `Name` | Recurso | `Description` |
+|---|---|---|
+| `oficina-mvp-eks` | Cluster EKS | Cluster Kubernetes que roda o Kong e a aplicação (namespaces homolog/prod) |
+| `oficina-mvp-eks-nodes` | Node group | Grupo de máquinas (EC2) do cluster EKS |
+| `oficina-mvp-eks-node` | **Instâncias EC2** dos nós | Máquina worker do cluster (via `aws_launch_template`: as tags do node group não passam para as instâncias) |
+| `oficina-mvp-eks-node-disk` | Discos (EBS) dos nós | Disco da máquina worker |
+| `oficina-mvp-ecr` | ECR | Imagens Docker da aplicação Java |
+| `oficina-mvp-tf-lock` | DynamoDB | Lock do state do Terraform |
+| `oficina-mvp-kong-lb` | **Load Balancer do Kong** | Entrada pública da aplicação. Criado pelo Kubernetes, etiquetado pela annotation `aws-load-balancer-additional-resource-tags` em `modules/kong/values.yaml` |
+
+Para ver **todos** os recursos do projeto numa tela só: console AWS → **Resource Groups & Tag Editor → Tag Editor**
+→ Region `us-east-1`, Resource types `All supported`, Tag `Project` = `oficina-mvp` → *Search resources*.
+Os nomes técnicos (`oficina-mecnica-lab-...`, com o erro de digitação histórico) foram mantidos para não recriar
+recursos nem quebrar pipelines; a tag `Name` é o nome legível.
+
 ## ⚙️ 3. CI/CD (GitHub Actions)
 
 Dois workflows, ambos exigindo os secrets `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` /
