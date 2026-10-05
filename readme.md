@@ -176,17 +176,26 @@ Para desfazer tudo: `terraform destroy` (ou disparar manualmente o workflow `des
 
 Dois workflows, ambos exigindo os secrets `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` /
 `CUSTOMER_JWT_SECRET` (esse último **precisa ser idêntico** ao configurado em `oficina-auth-function` e
-`oficina-mvp-java-backend`, ver ADR-006) e a variável `AWS_DEFAULT_REGION` configurados no repositório
-(⚠️ **ainda não configurados** — enquanto isso, o pipeline falha no passo "Configure AWS Credentials"; ver
-`plans/02-infra-k8s-ajustes.md` no repositório de specs do projeto). Secret **opcional**:
+`oficina-mvp-java-backend`, ver ADR-006) e a variável `AWS_DEFAULT_REGION` (configurados em 2026-10-04; os 3
+secrets AWS expiram a cada sessão do Learner Lab e precisam ser regravados). Secret **opcional**:
 `NEW_RELIC_LICENSE_KEY` — se ausente/vazio, o módulo `newrelic` simplesmente não é instalado (sem erro).
 
-- **`create_iac.yml`** — três jobs em cadeia: `fmt-validate` (`terraform fmt -check` + `terraform validate`) →
+- **`create_iac.yml`** — três jobs em cadeia: `fmt-validate` (`terraform fmt -check` + `terraform validate`, com
+  `init -backend=false` — não usa credenciais AWS, roda mesmo com o Lab desligado) →
   `plan` → `apply` (este último só roda em push para `homolog` ou `master`, ou disparo manual nessas branches).
   Gatilhos de `pull_request`/`push` cobrem `homolog` e `master`, seguindo o git flow do projeto
   (`feat/* → homolog → master`) — corrigido em 2026-09-26 (antes apontavam para uma branch `main-disabled`
   inexistente, então só rodava manualmente).
 - **`destroy_iac.yml`** — só dispara manualmente (`workflow_dispatch`), roda `terraform destroy -auto-approve`.
+
+**Chave de deploy — variable `DEPLOY_ENABLED`** (o crédito do AWS Academy é limitado; detalhe em
+`plans/10-chave-deploy-enabled.md` no repositório de specs):
+- `true` → em push para `homolog`/`master`, executa automaticamente `plan` e `apply` (deploy automático de homologação e
+  produção, como pede o enunciado).
+- `false` ou ausente → o pipeline roda só o que não depende da AWS e **pula** (*skipped*) `plan` e `apply`. É o estado
+  padrão fora de uma janela de deploy, para um merge não subir recursos pagos.
+- **Disparo manual** (*Actions → Run workflow*) ignora a chave: rodar pelo botão já é uma decisão explícita.
+- Ligar/desligar: *Settings → Secrets and variables → Actions → Variables → `DEPLOY_ENABLED`*.
 
 ## 🧩 4. Como este repositório se encaixa no projeto
 
