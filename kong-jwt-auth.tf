@@ -19,70 +19,64 @@
 # health, endpoint interno da Lambda) continuam passando pelo Ingress geral,
 # sem este plugin.
 #
-# NOTA IMPORTANTE (não testado em cluster real ainda): os CRDs do Kong
-# (KongConsumer/KongClusterPlugin) são instalados pelo próprio Helm release do
-# Kong (module.kong) na MESMA apply que cria estes recursos. O provider nativo
-# do Kubernetes para "kubernetes_manifest" precisa inspecionar o schema do CRD
-# no momento do plan/refresh - num cluster totalmente novo, isso pode falhar na
-# primeira tentativa ("no matches for kind KongConsumer/KongClusterPlugin") só
-# porque o CRD ainda não estava registrado quando o provider tentou. Solução
-# conhecida e simples: rodar `terraform apply` DE NOVO logo em seguida (idempo-
-# tente) - na segunda vez o CRD já existe e o provider consegue validar. Mesmo
-# padrão de bootstrap em 2 fases já usado para o lock do DynamoDB (dynamodb.tf).
+# POR QUE VIA HELM (extraObjects) E NÃO kubernetes_manifest: o recurso
+# kubernetes_manifest precisa falar com o cluster já no `terraform plan`. Num
+# ambiente do zero (cluster ainda inexistente) o plan inteiro falha com
+# "Failed to construct REST client" e nada é criado - rodar de novo não
+# resolve. Entregando os objetos ao próprio release do Kong (module.kong), o
+# Helm instala primeiro os CRDs do chart (pasta crds/) e depois estes objetos,
+# tudo na mesma apply, e o plan não depende do cluster existir.
+#
+# Label da credential: o Kong Ingress Controller 3.x (chart 2.44) reconhece
+# "konghq.com/credential"; o antigo "kongCredType" foi removido no KIC 3.0.
 # ==============================================================================
 
-resource "kubernetes_manifest" "customer_jwt_credential_secret" {
-  manifest = {
-    apiVersion = "v1"
-    kind       = "Secret"
-    metadata = {
-      name      = "customer-jwt-credential"
-      namespace = module.kong.namespace
-      labels = {
-        kongCredType = "jwt"
+locals {
+  kong_customer_jwt_objects = [
+    {
+      apiVersion = "v1"
+      kind       = "Secret"
+      metadata = {
+        name = "customer-jwt-credential"
+        labels = {
+          "konghq.com/credential" = "jwt"
+        }
       }
-    }
-    type = "Opaque"
-    stringData = {
-      key       = var.customer_jwt_issuer
-      algorithm = "HS256"
-      secret    = var.customer_jwt_secret
-    }
-  }
-
-  depends_on = [module.kong]
-}
-
-resource "kubernetes_manifest" "customer_kong_consumer" {
-  manifest = {
-    apiVersion = "configuration.konghq.com/v1"
-    kind       = "KongConsumer"
-    metadata = {
-      name      = var.customer_jwt_issuer
-      namespace = module.kong.namespace
-    }
-    username    = var.customer_jwt_issuer
-    credentials = ["customer-jwt-credential"]
-  }
-
-  depends_on = [module.kong, kubernetes_manifest.customer_jwt_credential_secret]
-}
-
-resource "kubernetes_manifest" "customer_jwt_cluster_plugin" {
-  manifest = {
-    apiVersion = "configuration.konghq.com/v1"
-    kind       = "KongClusterPlugin"
-    metadata = {
-      name = "customer-jwt-auth"
-      labels = {
-        global = "false"
+      type = "Opaque"
+      stringData = {
+        key       = var.customer_jwt_issuer
+        algorithm = "HS256"
+        secret    = var.customer_jwt_secret
       }
-    }
-    plugin = "jwt"
-    config = {
-      claims_to_verify = ["exp"]
-    }
-  }
-
-  depends_on = [module.kong]
+    },
+    {
+      apiVersion = "configuration.konghq.com/v1"
+      kind       = "KongConsumer"
+      metadata = {
+        name = var.customer_jwt_issuer
+        annotations = {
+          "kubernetes.io/ingress.class" = "kong"
+        }
+      }
+      username    = var.customer_jwt_issuer
+      credentials = ["customer-jwt-credential"]
+    },
+    {
+      apiVersion = "configuration.konghq.com/v1"
+      kind       = "KongClusterPlugin"
+      metadata = {
+        name = "customer-jwt-auth"
+        annotations = {
+          "kubernetes.io/ingress.class" = "kong"
+        }
+        labels = {
+          global = "false"
+        }
+      }
+      plugin = "jwt"
+      config = {
+        claims_to_verify = ["exp"]
+      }
+    },
+  ]
 }

@@ -20,6 +20,10 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
+
+  default_tags {
+    tags = local.common_tags
+  }
 }
 
 # Autentica no cluster EKS usando as mesmas credenciais (temporárias, no caso do

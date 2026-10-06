@@ -15,3 +15,10 @@ variable "proxy_service_type" {
   type        = string
   default     = "LoadBalancer"
 }
+
+variable "extra_objects" {
+  description = "Manifests extras instalados pelo próprio release do Kong (extraObjects do chart), depois dos CRDs - ex.: KongConsumer/KongClusterPlugin do ADR-006"
+  type        = any
+  default     = []
+  sensitive   = true
+}

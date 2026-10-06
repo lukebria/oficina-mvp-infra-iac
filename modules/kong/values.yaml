@@ -7,10 +7,18 @@ env:
 # (declarados no repositório da aplicação), em vez de config declarativa manual.
 ingressController:
   enabled: true
-  installCRDs: true
+  # CRDs ficam SÓ com o mecanismo nativo do Helm 3 (pasta crds/ do chart). Com installCRDs: true o chart
+  # também os renderiza como template, e a instalação aborta com "CustomResourceDefinition ... exists and
+  # cannot be imported into the current release" (os da pasta crds/ não levam labels de ownership do Helm).
+  installCRDs: false
 
 admin:
   enabled: false
 
 proxy:
   type: LoadBalancer
+  # O Load Balancer é criado pelo Kubernetes (não pelo Terraform), então não recebe as default_tags do provider.
+  # Esta annotation faz o controller da AWS etiquetá-lo (plano 11) - sem ela, aparece no console só com um nome
+  # aleatório (a84eb77...). Valores sem acento/vírgula (formato chave=valor separado por vírgula).
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-additional-resource-tags: "Name=oficina-mvp-kong-lb,Project=oficina-mvp,Repository=oficina-mvp-infra-iac,Component=kubernetes,Environment=lab,ManagedBy=kubernetes,Description=Entrada publica da aplicacao (Kong API Gateway)"

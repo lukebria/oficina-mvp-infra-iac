@@ -7,5 +7,8 @@ resource "aws_ecr_repository" "this" {
     scan_on_push = true
   }
 
-  tags = var.tags
+  tags = merge(var.tags, {
+    Name        = "oficina-mvp-ecr"
+    Description = "Imagens Docker da aplicacao Java (oficina-mvp-java-backend)"
+  })
 }

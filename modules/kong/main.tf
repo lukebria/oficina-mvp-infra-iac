@@ -11,7 +11,10 @@ resource "helm_release" "kong" {
   version    = var.chart_version
   namespace  = kubernetes_namespace.kong.metadata[0].name
 
-  values = [file("${path.module}/values.yaml")]
+  values = [
+    file("${path.module}/values.yaml"),
+    yamlencode({ extraObjects = var.extra_objects }),
+  ]
 
   set {
     name  = "proxy.type"
