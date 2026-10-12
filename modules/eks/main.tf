@@ -8,7 +8,7 @@ resource "aws_eks_cluster" "this" {
 
   tags = merge(var.tags, {
     Name        = "oficina-mvp-eks"
-    Description = "Cluster Kubernetes que roda o Kong e a aplicacao (namespaces homolog/prod)"
+    Description = "Cluster Kubernetes que roda o Kong e a aplicacao - namespaces homolog e prod"
   })
 }
 
@@ -23,7 +23,7 @@ resource "aws_launch_template" "nodes" {
     resource_type = "instance"
     tags = merge(var.node_tags, {
       Name        = "oficina-mvp-eks-node"
-      Description = "Maquina worker do cluster EKS (roda Kong, app, metrics-server e New Relic)"
+      Description = "Maquina worker do cluster EKS - roda Kong app metrics-server e New Relic"
     })
   }
 
@@ -62,6 +62,6 @@ resource "aws_eks_node_group" "this" {
 
   tags = merge(var.tags, {
     Name        = "oficina-mvp-eks-nodes"
-    Description = "Grupo de maquinas (EC2) do cluster EKS"
+    Description = "Grupo de maquinas EC2 do cluster EKS"
   })
 }
