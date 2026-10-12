@@ -39,3 +39,8 @@ override.tf.json
 .idea/
 .DS_Store
 Thumbs.db
+# ==========================================
+# 4. RUNBOOK (scripts Node)
+# ==========================================
+node_modules/
+.env

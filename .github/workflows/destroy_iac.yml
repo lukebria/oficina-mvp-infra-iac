@@ -34,7 +34,7 @@ jobs:
 
       # Step 4: Inicializa o Terraform (conecta no S3 para ler o tfstate)
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -backend-config="bucket=$(bash scripts/state-bucket.sh)"
 
       # Step 5: Executa a destruição automatizada na AWS
       - name: Terraform Destroy
