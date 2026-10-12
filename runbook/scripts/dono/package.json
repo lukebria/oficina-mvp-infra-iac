@@ -1,0 +1,14 @@
+{
+  "name": "oficina-runbook-scripts",
+  "version": "1.0.0",
+  "description": "Scripts do runbook de deploy (Tech Challenge Fase 3)",
+  "scripts": {},
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "libsodium-wrappers": "^0.7.15"
+  },
+  "private": true
+}
