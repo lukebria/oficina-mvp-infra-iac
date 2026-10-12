@@ -20,7 +20,8 @@ completo com os outros três repositórios.
   Kong com o plugin JWT, metrics-server, New Relic) e o ambiente foi destruído em seguida. O HPA da aplicação
   escalou de 1 para 5 réplicas sob carga.
 - O ambiente **não fica ligado** (crédito limitado do AWS Academy): é recriado para testes e para a gravação do
-  vídeo. Passo a passo para subir/derrubar: **runbook do projeto** (`runbook/RUNBOOK.md` no repositório de specs).
+  vídeo. Passo a passo para subir/derrubar, só com *Run workflow*: **[guia de gravação/runbook](https://github.com/lukebria/oficina-mvp-infra-iac/blob/master/runbook/RUNBOOK.md)** (pasta [`runbook/`](runbook/), com o
+  [roteiro do vídeo](https://github.com/lukebria/oficina-mvp-infra-iac/blob/master/runbook/ROTEIRO-VIDEO.md) e scripts de teste).
 - **Chave `DEPLOY_ENABLED`**: com `false` (padrão) os merges só validam; com `true` (ou disparo manual) aplicam
   na AWS. Ver [CI/CD](#️-3-cicd-github-actions).
 
@@ -117,19 +118,14 @@ numa conta AWS convencional. Isso molda várias decisões do código:
 
 ### 2.4. State remoto
 
-O state fica no S3 (`backends.tf`): bucket `oficina-mvp-tfstate-536036031274`, key `oficina-lab/terraform.tfstate`,
-`encrypt = true`.
-
-O bucket **não é criado pelo Terraform** (o backend precisa dele antes do `init`): é criado uma única vez pela
-CLI na conta do Learner Lab, privado, versionado e criptografado. O sufixo é o ID da conta AWS, porque nomes de
-bucket são globais — o nome antigo (`oficina-mvp-infra-iac`) pertence a outra conta e não pode mais ser usado.
+O state fica no S3 (`backends.tf`): bucket **`oficina-mvp-tfstate-<conta AWS>`**, key
+`oficina-lab/terraform.tfstate`, `encrypt = true`. O nome do bucket não fica fixo no código (plano 18): o
+`scripts/state-bucket.sh` calcula a partir das credenciais e, com `--create`, cria o bucket na 1ª subida em cada
+conta (privado, versionado, com tags) — assim cada integrante sobe o ambiente no próprio Learner Lab. O sufixo é o
+ID da conta porque nomes de bucket são globais. Os workflows passam o nome no `terraform init -backend-config`.
 
 ```bash
-B=oficina-mvp-tfstate-536036031274
-aws s3api create-bucket --bucket $B --region us-east-1
-aws s3api put-bucket-versioning --bucket $B --versioning-configuration Status=Enabled
-aws s3api put-public-access-block --bucket $B --public-access-block-configuration \
-  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+bash scripts/state-bucket.sh --create     # imprime o nome; cria o bucket se ainda não existir
 aws s3api put-bucket-encryption --bucket $B \
   --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
 ```
@@ -185,8 +181,8 @@ export AWS_SESSION_TOKEN="..."
 export AWS_DEFAULT_REGION="us-east-1"
 export TF_VAR_customer_jwt_secret="..."   # mesmo valor de oficina-auth-function/oficina-mvp-java-backend
 
-# 2. Inicializar o backend remoto (S3)
-terraform init
+# 2. Inicializar o backend remoto (S3) no bucket da conta das credenciais
+terraform init -backend-config="bucket=$(bash scripts/state-bucket.sh --create)"
 
 # 3. Ver o que seria criado/alterado
 terraform plan
@@ -262,8 +258,7 @@ pelo enunciado. Os outros três:
   repositório 4/4. O `.github/workflows/app-deploy.yml` de lá assume que o cluster (`oficina-mecnica-lab-cluster`),
   o ECR (`oficina-mecnica-lab`) e o Kong (namespace `kong`) provisionados aqui já existem, e aplica os manifests
   de `k8s/` (Deployment, HPA, os 2 `Ingress` ligados ao Kong). O banco da aplicação é o **RDS** do
-  `oficina-mvp-infra-db` (variable `DB_HOST`); o `k8s/banco.yaml` (Postgres em pod) só é usado se `DB_HOST` não
-  estiver configurada.
+  `oficina-mvp-infra-db` (endpoint e senha lidos da AWS pelo deploy; não há banco dentro do cluster).
 - [`oficina-auth-function`](https://github.com/lukebria/oficina-auth-function) — Function serverless (Lambda) que
   valida CPF/CNPJ e emite o JWT do fluxo público de cliente. Não depende de nada provisionado aqui — tem seu
   próprio Terraform (Lambda + API Gateway) dentro do próprio repositório. É um **API Gateway distinto do Kong**:
@@ -331,7 +326,7 @@ flowchart TB
         Lambda["Lambda: oficina-auth-function<br/>(login por CPF)"]
         ApiGwLambda["AWS API Gateway (HTTP API)<br/>só da Lambda"]
         ECR["Amazon ECR<br/>(imagens da app)"]
-        S3["S3: terraform state<br/>(oficina-mvp-tfstate-536036031274)"]
+        S3["S3: terraform state<br/>(oficina-mvp-tfstate-conta)"]
         Dynamo["DynamoDB: lock do state<br/>(este repo, compartilhado)"]
         NewRelic["New Relic<br/>(nri-bundle: CPU/memória, pods, HPA, logs)"]
     end

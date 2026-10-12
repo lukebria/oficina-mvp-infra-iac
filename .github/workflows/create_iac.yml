@@ -72,8 +72,9 @@ jobs:
         with:
           terraform_version: 1.5.0
 
+      # Plano 18: bucket de state da conta das credenciais (criado na 1ª subida em cada conta)
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -backend-config="bucket=$(bash scripts/state-bucket.sh --create)"
 
       - name: Terraform Plan
         env:
@@ -110,8 +111,9 @@ jobs:
         with:
           terraform_version: 1.5.0
 
+      # Plano 18: bucket de state da conta das credenciais (criado na 1ª subida em cada conta)
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -backend-config="bucket=$(bash scripts/state-bucket.sh --create)"
 
       - name: Terraform Apply
         env:
